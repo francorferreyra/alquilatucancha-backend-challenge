@@ -1,6 +1,6 @@
-import { Slot } from '../model/slot';
+import { Slot } from '../../infrastructure/models/slot';
 
-export class SlotAvailableEvent {
+export class SlotCanceledEvent {
   constructor(
     public clubId: number,
     public courtId: number,

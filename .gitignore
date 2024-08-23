@@ -2,6 +2,9 @@
 /dist
 /node_modules
 
+# Yarn cache
+.yarn
+
 # Logs
 logs
 *.log
@@ -13,6 +16,7 @@ lerna-debug.log*
 
 # OS
 .DS_Store
+.env
 
 # Tests
 /coverage

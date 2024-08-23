@@ -1,17 +1,19 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import { EventBus } from '@nestjs/cqrs';
+import { isMatch } from 'date-fns';
 import { UseZodGuard } from 'nestjs-zod';
 import { z } from 'nestjs-zod/z';
 
 import { ClubUpdatedEvent } from '../../domain/events/club-updated.event';
 import { CourtUpdatedEvent } from '../../domain/events/court-updated.event';
 import { SlotBookedEvent } from '../../domain/events/slot-booked.event';
-import { SlotAvailableEvent } from '../../domain/events/slot-cancelled.event';
+import { SlotCanceledEvent } from '../../domain/events/slot-cancelled.event';
+import { DATE_HOUR_FORMAT } from '../constants/date';
 
 const SlotSchema = z.object({
   price: z.number(),
   duration: z.number(),
-  datetime: z.string(),
+  datetime: z.string().refine((d) => isMatch(d, DATE_HOUR_FORMAT)),
   start: z.string(),
   end: z.string(),
   _priority: z.number(),
@@ -27,15 +29,19 @@ export const ExternalEventSchema = z.union([
   z.object({
     type: z.literal('club_updated'),
     clubId: z.number().int(),
-    fields: z.array(
-      z.enum(['attributes', 'openhours', 'logo_url', 'background_url']),
-    ),
+    fields: z
+      .array(z.enum(['attributes', 'openhours', 'logo_url', 'background_url']))
+      // Events without fields are rejected
+      .refine((fields) => fields.length > 0),
   }),
   z.object({
     type: z.literal('court_updated'),
     clubId: z.number().int(),
     courtId: z.number().int(),
-    fields: z.array(z.enum(['attributes', 'name'])),
+    fields: z
+      .array(z.enum(['attributes', 'name']))
+      // Events without fields are rejected
+      .refine((fields) => fields.length > 0),
   }),
 ]);
 
@@ -60,7 +66,7 @@ export class EventsController {
         break;
       case 'booking_cancelled':
         this.eventBus.publish(
-          new SlotAvailableEvent(
+          new SlotCanceledEvent(
             externalEvent.clubId,
             externalEvent.courtId,
             externalEvent.slot,

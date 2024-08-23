@@ -11,20 +11,24 @@ const REQUESTS_PER_MINUTE = parseInt(process.env.REQUESTS_PER_MINUTE) || 60;
 const EVENT_PUBLISHER_URL =
   process.env.EVENT_PUBLISHER_URL || 'http://localhost:3000/events';
 
-let request_count = 0;
+let available_requests = REQUESTS_PER_MINUTE;
 
-fastify.addHook('onRequest', function (request, reply, done) {
-  request_count++;
-  if (request_count > REQUESTS_PER_MINUTE) {
+// Reiniciar la cantidad de solicitudes disponibles cada 60 segundos
+setInterval(() => {
+  available_requests = REQUESTS_PER_MINUTE;
+  console.log('Request limit reset. Available requests:', available_requests);
+}, 60 * 1000);
+
+fastify.addHook('onRequest', function (_request, reply, done) {
+  if (available_requests <= 0) {
     reply.code(429);
     done(new Error('Too many requests'));
     return;
   }
-  console.log('Available requests:', REQUESTS_PER_MINUTE - request_count);
-  setTimeout(60 * 1000).then(() => {
-    console.log('Available requests:', REQUESTS_PER_MINUTE - request_count);
-    request_count--;
-  });
+
+  available_requests--;
+  console.log('Available requests:', available_requests);
+
   done();
 });
 
@@ -105,7 +109,7 @@ fastify.get(
   },
   async (request, reply) => {
     const court = data.getCourt(request.params.clubId, request.params.courtId);
-    if (!court.length) {
+    if (!court) {
       return reply.code(404).send();
     }
     return omit('available')(court);

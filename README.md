@@ -1,111 +1,153 @@
 ## Intro
 
-Bienvenido/a al desafío técnico de AlquilaTuCancha. Este proyecto simula un servicio de búsqueda de disponibilidad de canchas,
-el cuál está tardando mucho y no tolera gran cantidad de solicitudes por minuto. 
+Bienvenidos al README del proyecto.
 
-El objetivo de este desafío es optimizar el servicio para que responda lo más rápido posible, con información actualizada
-y que soporte altos niveles de tráfico.
+En base a la solicitud de optimización del aplicativo, decidí utilizar tecnologías que permitan manejar correctamente las limitadas consultas que se pueden realizar con el API Mock.
 
-## El proyecto
+A continuación, procederé a dar los motivos por los cuales decidí implementar herramientas que me brindaron lograr, desde una primer instancia, el correcto uso del aplicativo, mejorando significativamente el tiempo de respuesta, el cual antes era un problema por su alta latencia.
 
-El servicio de disponibilidad devuelve, a partir de un [Place Id](https://developers.google.com/maps/documentation/places/web-service/place-id) y fecha, todos los clubes de la zona, con sus respectivos atributos, canchas y disponibilidad. Ejemplos de respuestas se encuentran dentro de `mock/data/`.
+**Bull - Administrar colas**: Luego de investigar sobre las colas de trabajo, decidí implementarlas con la tecnología Bull y evitar la saturación del sistema cuando el API Mock se colapsaba y no respondía correctamente.
 
-El proyecto consta de dos partes
+**Redis - Administrar caché**: Elegí Redis para la administración del caché, porque provee un servicio de caché rápido y eficiente, reduciendo así la alta latencia que sufría el Micro servicio, al almacenar respuestas frecuentes y simplemente consultarlas. Esto permitió que aumente la velocidad de las respuestas, la consistencia del Micro servicio, y reduciendo la cantidad de peticiones (limitadas por X tiempo) del API Mock.
 
-1. La API principal, sobre la que hay que trabajar y que está desarrollada en [NestJS](https://github.com/nestjs/nest) adaptada a una Arquitectura Hexagonal.
-2. Una API mock, desarrollada en JS vanilla y que **no** debe ser modificada
+**Resultado**: Se redujo el tiempo de espera a 4s para las peticiones de datos no almacenados y ~350ms en datos almacenados. Con un máximo de ~1:10 minutos cuando se alcance el limite de peticiones
 
-La API mock es la fuente de verdad y a su vez nuestro cuello de botella. Los endpoints que expone son
+# IMPORTANTE
 
-- `GET /zones`: Lista todas las zones donde tenemos clubes
-- `GET /clubs?placeId`: Lista los clubes por zona
-- `GET /clubs/:id`: Detalla un club
-- `GET /clubs/:id/courts`: Lista las canchas de un club
-- `GET /clubs/:id/courts/:id`: Detalla una cancha de un club
-- `GET /clubs/:id/courts/:id/slots?date`: Lista la disponibilidad una cancha para una fecha en particular
+Se realizaron los siguientes cambios a la api mock para su correcto funcionamiento
 
-> Estos endpoints tienen un latencia alta y la API en general tiene un límite de 60 solicitudes por minuto.
+### Control de peticiones
 
+```js
+let request_count = 0;
 
-A su vez, la API mock tiene la capacidad de avisar a la API principal cada vez que ocurren modificaciones. Los eventos posibles son los siguientes
-
-- Se ocupa un lugar (`booking_created`)
-- Se libera un lugar (`booking_cancelled`)
-- Se actualiza un club (`club_updated`)
-- Se actualiza una cancha (`court_updated`)
-
-En algunos casos, estos eventos modifican la disponibilidad de la cancha.
-Por ejemplo, cuando se ocupa un lugar en la cancha 140 el 25 de Agosto a las 10:30, la disponibilidad para esa fecha debe ser actualizada.
-Lo mismo ocurre cuando se libera un lugar.
-
-En otros casos, los eventos no modifican las disponibilidad de la cancha, pero sí la información estática. Por ejemplo, si se cambia el nombre
-de la cancha 140, el servicio debe reflejar el nuevo nombre
-
-**Atención**: cuando se actualiza un club, dependiendo de los atributos a actualizar, puede que modifique o no la disponibilidad. Hay un atributo
-especial llamado `open_hours` que refleja el horario de apertura y cierre de los complejos según el día de la semana, si este cambia, puede afectar la disponibilidad. El resto de los atributos no modifican la disponibilidad
-
-
-> Un evento al azar ocurre cada 10 segundos. Durante el desarrollo se puede modificar el intervalo a gusto a través de la variable
-> de entorno `EVENT_INTERVAL_SECONDS`, pero la solución debe funcionar independientemente del valor
-
-## Resolviendo el challenge
-
-### Correr el proyecto
-
-Clonar el repositorio e instalar las dependencias con
-
-```bash
-$ yarn
+fastify.addHook('onRequest', function (request, reply, done) {
+  request_count++;
+  if (request_count > REQUESTS_PER_MINUTE) {
+    reply.code(429);
+    done(new Error('Too many requests'));
+    return;
+  }
+  console.log('Available requests:', REQUESTS_PER_MINUTE - request_count);
+  setTimeout(60 * 1000).then(() => {
+    console.log('Available requests:', REQUESTS_PER_MINUTE - request_count);
+    request_count--;
+  });
+  done();
+});
 ```
 
-El proyecto se puede levantar con `docker-compose` o desde el host como lo indica la documentación de [NestJS](https://docs.nestjs.com/).
-Nota: Si se corre desde el host también hay que correr en paralelo la API mock.
+> Se detecto un comportamiento inesperado donde al cumplirse el minuto unicamente sumaba 1 intento y no su totalidad.
 
-La versión de node utilizada se encuentra definida en el `package.json` y en `.nvmrc` en caso de que uses `nvm`.
+```js
+setInterval(() => {
+  available_requests = REQUESTS_PER_MINUTE;
+  console.log('Request limit reset. Available requests:', available_requests);
+}, 60 * 1000);
 
-### Modificar
+fastify.addHook('onRequest', function (_request, reply, done) {
+  if (available_requests <= 0) {
+    reply.code(429);
+    done(new Error('Too many requests'));
+    return;
+  }
 
-Los puntos de entrada y salida de la API ya están desarrollados, aunque se espera que se le hagan modificaciones
+  available_requests--;
+  console.log('Available requests:', available_requests);
 
-1. `AlquilaTuCanchaClient`: donde se hace la comunicación desde la API principal a la API mock
-2. `EventsController`: donde se reciben los eventos desde la API mock
-2. `SearchController`: donde se inicia la consulta de disponibilidad (la lógica se encuentra en `GetAvailabilityHandler`)
-
-Requests de ejemplo
-
-```bash
-curl "localhost:3000/search?placeId=ChIJW9fXNZNTtpURV6VYAumGQOw&date=2022-08-25"
-curl "localhost:3000/search?placeId=ChIJW9fXNZNTtpURV6VYAumGQOw&date=2022-08-25"
+  done();
+});
 ```
 
+> Se aplico un codigo mas sencillo que asegura el correcto funcionamiento del mismo
 
-### Entregar
+### Validacion de datos en EP de canchas por id
 
-El método de entrega es a través de un pull request a este repositorio.
+```js
+fastify.get(
+  '/clubs/:clubId/courts/:courtId',
+  //...resto del codigo
+  async (request, reply) => {
+    const court = data.getCourt(request.params.clubId, request.params.courtId);
+    if (!court.length) {
+      return reply.code(404).send();
+    }
+    return omit('available')(court);
+  },
+);
+```
 
-1. [Hacer un fork](https://help.github.com/articles/fork-a-repo/) de este repositorio
-2. [Crear un pull request](https://help.github.com/articles/creating-a-pull-request-from-a-fork/)
-3. En la descripción del pull request se aprecia documentar decisiones, investigaciones, supociones o iteraciones futuras
+> Se detecto la validacion por "length" a un objeto resultando en todo momento una respuesta erronea
 
-Las consultas se pueden hacer por privado o creando un issue en este repositorio
+```js
+fastify.get(
+  '/clubs/:clubId/courts/:courtId',
+  //...resto del codigo
+  async (request, reply) => {
+    const court = data.getCourt(request.params.clubId, request.params.courtId);
+    if (!court) {
+      return reply.code(404).send();
+    }
+    return omit('available')(court);
+  },
+);
+```
 
+> Se agrego una validacion de tipo falsey resultando en un comportamiento correcto
 
-Qué vamos a evaluar? La idea es que este desafío se asemeje lo máximo posible a una tarea del día a día, por eso proveemos un proyecto con una aplicación ya configurada y lista para modificar. Esto significa que
+## Como iniciar el proyecto
 
-- Se espera que se agreguen tests que comprueben el correcto funcionamiento de lo desarrollado
-- Se espera que se entienda y se respete la arquitectura de la aplicación
-- Si se decide investigar técnicas y/o patrones para resolver este problema, está perfecto y nos gustaría saber los links consultados
-- Son bienvenidas las consultas, como en cualquier equipo resolvemos las cosas juntos
-- En caso de falta de tiempo, se valora la priorización para atacar lo más importante y documentar lo que faltaría
+- Descargar redis para Windows desde [Github](https://github.com/microsoftarchive/redis/releases)
+- Ejecutar en PowerShell
 
+```
+cd "C:\Program Files\Redis"
+```
 
-## Reglas y tips
+```
+.\redis-server.exe --port 6380
+```
 
-- No se puede modificar la API mock para resolver el desafío
-- Asumir que sólo se recibirán consultas para fechas dentro de los próximos 7 días
-- Asumir que la API mock puede estar caída en todo momento
-- Es preferible devolver resultados desactualizados que no devolver nada
-- Se puede modificar el `docker-compose.yml` para agregar cualquier dependencia que se necesite
-- No hace falta implementar lógica de disponibilidad al reaccionar a los eventos, siempre se puede consultar la disponibilidad actualizada a la API mock por cancha y fecha 
-- A modo de comprobación hay un endpoint en la API mock (`/test?placeId&date`) que devuelve la disponibilidad como debería ser devuelta por la API principal
-- No se puede usar el endpoint de test de la API mock para resolver el desafío
+- Iniciar API y API mock
+
+## Documentación
+
+Debajo, tendrán la documentación consultada para realizar la solución planteada, y las tecnologías que se decidieron utilizar.
+
+## NestJS
+
+- [NestJS Doc](https://docs.nestjs.com/providers#services)
+- [NestJS GitHub](https://github.com/nestjs/nest)
+- [NestJS Medium - Module/Services](https://medium.com/@prajapatijinesh3/nestjs-module-services-860e12689c1b)
+
+## Bull (Queue administrator)
+
+- [Bull Doc](https://docs.nestjs.com/techniques/queues)
+- [Bull - Queuing Jobs](https://dev.to/railsstudent/queuing-jobs-in-nestjs-using-nestjsbullmq-package-55c1)
+
+## Redis (Cache managment & job queue/enqueue implementation)
+
+- [Redis Doc](https://docs.nestjs.com/microservices/redis)
+- [Redis - Using Redis Client in NestJS](https://medium.com/@akintobiidris/using-redis-client-in-nestjs-3fe80eb91a49)
+
+## Hexagonal Architecture (NestJs oriented)
+
+- [Guide - Step 1](https://nullpointer-excelsior.github.io/posts/implementando-hexagonal-con-nestjs-part1/)
+- [Guide - Step 2](https://nullpointer-excelsior.github.io/posts/implementando-hexagonal-con-nestjs-part2/)
+
+## Diagrama hexagonal de la aplicación
+
+![Arquitectura](https://i.postimg.cc/hvpnvXjH/hexagon-svgrepo-com-1.png)
+
+## Diagrama de manejo de peticiones
+
+![Peticiones](https://i.postimg.cc/jdxDQytp/atc.webp)
+
+## Puntos a mejorar
+
+### 1. Testing
+
+Se realizaron testeos sobre los servicios de eventos, sin embargo, fueron omitidos por su complejidad los testeos en los handlers de busquedas
+
+### 2. Docker
+La creacion de imagenes en docker no pudo ser testeada debido a un error de permisos desconocido, independientemente de la gran variedad de soluciones aplicadas en los archivos de configuracion
