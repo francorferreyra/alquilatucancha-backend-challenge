@@ -1,3 +1,5 @@
+/* eslint-disable */
+
 import { NestFactory } from '@nestjs/core';
 import {
   FastifyAdapter,
@@ -12,5 +14,7 @@ async function bootstrap() {
     new FastifyAdapter({ logger: true }),
   );
   await app.listen(3000, '0.0.0.0');
+
+
 }
 bootstrap();
