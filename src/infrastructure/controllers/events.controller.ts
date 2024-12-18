@@ -1,7 +1,9 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Post, Inject } from '@nestjs/common';
 import { EventBus } from '@nestjs/cqrs';
 import { UseZodGuard } from 'nestjs-zod';
 import { z } from 'nestjs-zod/z';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';  
 
 import { ClubUpdatedEvent } from '../../domain/events/club-updated.event';
 import { CourtUpdatedEvent } from '../../domain/events/court-updated.event';
@@ -43,44 +45,75 @@ export type ExternalEventDTO = z.infer<typeof ExternalEventSchema>;
 
 @Controller('events')
 export class EventsController {
-  constructor(private eventBus: EventBus) {}
+  constructor(
+    private eventBus: EventBus,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache, 
+  ) {}
+
+  private isBookingEvent(event: ExternalEventDTO): event is { type: 'booking_created' | 'booking_cancelled'; clubId: number; courtId: number; slot: any } {
+    return event.type === 'booking_created' || event.type === 'booking_cancelled';
+  }
+
+  private async handleEvent(externalEvent: ExternalEventDTO) {
+    if (this.isBookingEvent(externalEvent)) {
+      const eventMapping = {
+        booking_created: async () => {
+          this.eventBus.publish(
+            new SlotBookedEvent(
+              externalEvent.clubId,
+              externalEvent.courtId,
+              externalEvent.slot,
+            ),
+          );
+
+          const key = `availability:${externalEvent.clubId}:${externalEvent.courtId}:${externalEvent.slot.start}`;
+          await this.cacheManager.set(key, { available: false }, { ttl: 60 }); 
+        },
+        booking_cancelled: async () => {
+          this.eventBus.publish(
+            new SlotAvailableEvent(
+              externalEvent.clubId,
+              externalEvent.courtId,
+              externalEvent.slot,
+            ),
+          );
+
+          const key = `availability:${externalEvent.clubId}:${externalEvent.courtId}:${externalEvent.slot.start}`;
+          await this.cacheManager.set(key, { available: true }, { ttl: 60 });  // Marca el lugar como disponible
+        },
+      };
+
+      const eventHandler = eventMapping[externalEvent.type];
+      if (eventHandler) {
+        await eventHandler();
+      }
+    } else {
+      switch (externalEvent.type) {
+        case 'club_updated':
+          this.eventBus.publish(
+            new ClubUpdatedEvent(externalEvent.clubId, externalEvent.fields),
+          );
+          break;
+        case 'court_updated':
+          this.eventBus.publish(
+            new CourtUpdatedEvent(
+              externalEvent.clubId,
+              externalEvent.courtId,
+              externalEvent.fields,
+            ),
+          );
+          break;
+      }
+    }
+  }
 
   @Post()
   @UseZodGuard('body', ExternalEventSchema)
   async receiveEvent(@Body() externalEvent: ExternalEventDTO) {
-    switch (externalEvent.type) {
-      case 'booking_created':
-        this.eventBus.publish(
-          new SlotBookedEvent(
-            externalEvent.clubId,
-            externalEvent.courtId,
-            externalEvent.slot,
-          ),
-        );
-        break;
-      case 'booking_cancelled':
-        this.eventBus.publish(
-          new SlotAvailableEvent(
-            externalEvent.clubId,
-            externalEvent.courtId,
-            externalEvent.slot,
-          ),
-        );
-        break;
-      case 'club_updated':
-        this.eventBus.publish(
-          new ClubUpdatedEvent(externalEvent.clubId, externalEvent.fields),
-        );
-        break;
-      case 'court_updated':
-        this.eventBus.publish(
-          new CourtUpdatedEvent(
-            externalEvent.clubId,
-            externalEvent.courtId,
-            externalEvent.fields,
-          ),
-        );
-        break;
+    try {
+      await this.handleEvent(externalEvent);
+    } catch (error) {
+      console.error('Error processing event:', error);
     }
   }
 }

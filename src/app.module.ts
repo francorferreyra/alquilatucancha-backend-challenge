@@ -1,7 +1,9 @@
+import { CacheModule } from '@nestjs/cache-manager';
 import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { CqrsModule } from '@nestjs/cqrs';
+import * as redisStore from 'cache-manager-redis-store'; 
 
 import { ClubUpdatedHandler } from './domain/handlers/club-updated.handler';
 import { GetAvailabilityHandler } from './domain/handlers/get-availability.handler';
@@ -11,7 +13,17 @@ import { EventsController } from './infrastructure/controllers/events.controller
 import { SearchController } from './infrastructure/controllers/search.controller';
 
 @Module({
-  imports: [HttpModule, CqrsModule, ConfigModule.forRoot()],
+  imports: [
+    HttpModule,
+    CqrsModule,
+    ConfigModule.forRoot(),
+    CacheModule.register({
+      store: redisStore,  
+      host: 'localhost',  
+      port: 6380,         
+      ttl: 60,
+    }),
+  ],
   controllers: [SearchController, EventsController],
   providers: [
     {

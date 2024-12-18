@@ -1,8 +1,9 @@
-import { Controller, Get, Query, UsePipes } from '@nestjs/common';
+import { CACHE_MANAGER, Controller, Get, Query, UsePipes, InternalServerErrorException, Inject } from '@nestjs/common';
 import { QueryBus } from '@nestjs/cqrs';
 import * as moment from 'moment';
 import { createZodDto, ZodValidationPipe } from 'nestjs-zod';
 import { z } from 'nestjs-zod/z';
+import { Cache } from 'cache-manager'; 
 
 import {
   ClubWithAvailability,
@@ -22,15 +23,33 @@ class GetAvailabilityDTO extends createZodDto(GetAvailabilitySchema) {}
 
 @Controller('search')
 export class SearchController {
-  constructor(private queryBus: QueryBus) {}
+  constructor(
+    private queryBus: QueryBus,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache, 
+  ) {}
+  
 
   @Get()
   @UsePipes(ZodValidationPipe)
-  searchAvailability(
+  async searchAvailability(
     @Query() query: GetAvailabilityDTO,
   ): Promise<ClubWithAvailability[]> {
-    return this.queryBus.execute(
-      new GetAvailabilityQuery(query.placeId, query.date),
-    );
+    const key = `rate_limit:${query.placeId}:${query.date.toISOString()}`;  
+    const rateLimit = 60;  
+    const ttl = 60;  
+
+    const currentCount = await this.cacheManager.get<number>(key);
+    if (currentCount && currentCount >= rateLimit) {
+      throw new InternalServerErrorException('Rate limit exceeded');
+    }
+
+    await this.cacheManager.set(key, (currentCount || 0) + 1, { ttl });
+
+    try {
+      return await this.queryBus.execute(new GetAvailabilityQuery(query.placeId, query.date));
+    } catch (error) {
+      console.error('Error executing query:', error);
+      throw new InternalServerErrorException('Failed to fetch availability');
+    }
   }
 }
