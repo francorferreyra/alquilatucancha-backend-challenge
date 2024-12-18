@@ -109,3 +109,11 @@ Qué vamos a evaluar? La idea es que este desafío se asemeje lo máximo posible
 - No hace falta implementar lógica de disponibilidad al reaccionar a los eventos, siempre se puede consultar la disponibilidad actualizada a la API mock por cancha y fecha 
 - A modo de comprobación hay un endpoint en la API mock (`/test?placeId&date`) que devuelve la disponibilidad como debería ser devuelta por la API principal
 - No se puede usar el endpoint de test de la API mock para resolver el desafío
+
+## Tareas realizadas
+
+1- Implementación de Control de Rate Limiting con Redis: Se implementó un sistema de control de la cantidad de solicitudes por minuto utilizando Redis. Esto asegura que no se exceda el límite de solicitudes, gestionando las solicitudes de los usuarios de manera eficiente.
+
+Modificación del EventsController para Manejo de Eventos: Se adaptó el controlador para manejar diferentes tipos de eventos como booking_created, booking_cancelled, club_updated, y court_updated. En cada tipo de evento, se publican los eventos correspondientes en el bus de eventos (CQRS). Además, para los eventos de reservas, se actualiza la caché de disponibilidad de los slots de las canchas.
+
+Manejo de la Caché con CACHE_MANAGER: En los eventos de reservas, se implementó la actualización de la caché para reflejar la disponibilidad de las canchas. Esto se realiza utilizando Redis para marcar los slots como disponibles o no disponibles de manera eficiente.
