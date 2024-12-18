@@ -79,7 +79,7 @@ export class EventsController {
           );
 
           const key = `availability:${externalEvent.clubId}:${externalEvent.courtId}:${externalEvent.slot.start}`;
-          await this.cacheManager.set(key, { available: true }, { ttl: 60 });  // Marca el lugar como disponible
+          await this.cacheManager.set(key, { available: true }, { ttl: 60 });
         },
       };
 
@@ -120,4 +120,3 @@ export class EventsController {
       return { message: 'Error processing event' };  
     }
   }
-  

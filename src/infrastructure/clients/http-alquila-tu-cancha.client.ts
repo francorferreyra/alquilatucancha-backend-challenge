@@ -40,7 +40,7 @@ export class HTTPAlquilaTuCanchaClient implements AlquilaTuCanchaClient {
     courtId: number,
     date: Date,
   ): Promise<Slot[]> {
-    const formattedDate = date.toISOString().split('T')[0]; // Formato 'YYYY-MM-DD'
+    const formattedDate = date.toISOString().split('T')[0]; 
     return this.getData<Slot>(`/clubs/${clubId}/courts/${courtId}/slots`, { date: formattedDate });
   }
 }
