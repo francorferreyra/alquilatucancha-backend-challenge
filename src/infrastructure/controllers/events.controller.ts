@@ -110,10 +110,14 @@ export class EventsController {
   @Post()
   @UseZodGuard('body', ExternalEventSchema)
   async receiveEvent(@Body() externalEvent: ExternalEventDTO) {
+    console.log('Received event:', externalEvent);
     try {
       await this.handleEvent(externalEvent);
+      console.log('Event processed successfully');
+      return { message: 'Event processed successfully' }; 
     } catch (error) {
       console.error('Error processing event:', error);
+      return { message: 'Error processing event' };  
     }
   }
-}
+  
