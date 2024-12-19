@@ -1,9 +1,10 @@
-import { CACHE_MANAGER, Controller, Get, Query, UsePipes, InternalServerErrorException, Inject } from '@nestjs/common';
+import { Controller, Get, Query, UsePipes, InternalServerErrorException, Inject } from '@nestjs/common';
 import { QueryBus } from '@nestjs/cqrs';
 import * as moment from 'moment';
 import { createZodDto, ZodValidationPipe } from 'nestjs-zod';
 import { z } from 'nestjs-zod/z';
-import { Cache } from 'cache-manager'; 
+import { Cache } from 'cache-manager';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 
 import {
   ClubWithAvailability,
@@ -24,19 +25,18 @@ class GetAvailabilityDTO extends createZodDto(GetAvailabilitySchema) {}
 @Controller('search')
 export class SearchController {
   constructor(
-    private queryBus: QueryBus,
-    @Inject(CACHE_MANAGER) private cacheManager: Cache, 
+    private readonly queryBus: QueryBus,
+    @Inject(CACHE_MANAGER) private readonly cacheManager: Cache
   ) {}
-  
 
   @Get()
   @UsePipes(ZodValidationPipe)
   async searchAvailability(
     @Query() query: GetAvailabilityDTO,
   ): Promise<ClubWithAvailability[]> {
-    const key = `rate_limit:${query.placeId}:${query.date.toISOString()}`;  
-    const rateLimit = 60;  
-    const ttl = 60;  
+    const key = `rate_limit:${query.placeId}:${query.date.toISOString()}`;
+    const rateLimit = 60;
+    const ttl = 60;
 
     const currentCount = await this.cacheManager.get<number>(key);
     if (currentCount && currentCount >= rateLimit) {
