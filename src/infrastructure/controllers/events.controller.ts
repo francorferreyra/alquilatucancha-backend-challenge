@@ -120,3 +120,4 @@ export class EventsController {
       return { message: 'Error processing event' };  
     }
   }
+}
